@@ -33,21 +33,37 @@ def register():
     data = request.json
     email = data.get("email")
     password = data.get("password")
+
     if not email or not password:
         return jsonify({"error": "email and password required"}), 400
-    users = load_users()
-    if email in users:
+
+    password_hash = hash_password(password)
+
+    assistant = MentalHealthAssistant(user_id="temp_check")
+    existing = assistant.qdrant.get_user_by_email(email)
+
+    if existing:
         return jsonify({"error": "user exists"}), 409
+
     user_id = str(uuid.uuid4())
+
+    users = load_users()
     users[email] = {
         "user_id": user_id,
-        "password": hash_password(password),
+        "password": password_hash,
         "created": datetime.now().isoformat()
     }
     save_users(users)
+
     assistant = MentalHealthAssistant(user_id)
-    assistant.initialize()
-    return jsonify({"user_id": user_id})
+    assistant.user_profile.email = email
+    assistant.user_profile.password_hash = password_hash
+    assistant.qdrant.upsert_user_profile(assistant.user_profile)
+
+    return jsonify({
+        "user_id": user_id,
+        "email": email
+    })
 
 
 @app.post("/auth/login")
