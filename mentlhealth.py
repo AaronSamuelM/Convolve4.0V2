@@ -772,6 +772,16 @@ class QdrantManager:
         self.encoder = SentenceTransformer(EMBEDDING_MODEL)
         console.print(f"[green]✓[/green] Connected to Qdrant at {host}:{port}")
         console.print(f"[green]✓[/green] Loaded embedding model: {EMBEDDING_MODEL}")
+
+    def get_user_by_email(self, email: str) -> Optional[UserProfile]:
+        res, _ = self.client.scroll(
+            USER_PROFILE_COLLECTION,
+            Filter(must=[FieldCondition(key="email",match=MatchValue(value=email))]),
+            limit=1
+        )
+        if not res:
+            return None
+        return UserProfile(**res[0].payload)
     
     def setup_collections(self):
         collections = [
@@ -953,7 +963,6 @@ class QdrantManager:
         return resources_with_scores
     
     def add_memory(self, memory: UserMemory):
-        """Add or update user memory"""
         vector = self.encoder.encode(memory.query).tolist()
         
         point = PointStruct(
@@ -1274,7 +1283,20 @@ class MentalHealthAssistant:
             f"User ID: {user_id} | Session: {self.session_id}",
             border_style="cyan"
         ))
-    
+    def create_user_profile(self,name:str, email: str, password_hash: str):
+        if self.is_guest:
+            return
+
+        self.user_profile = UserProfile(
+            user_id=self.user_id,
+            name=name,
+            email=email,
+            password_hash=password_hash,
+            created_at=datetime.now().isoformat()
+        )
+        self.qdrant.upsert_user_profile(self.user_profile)
+
+
     def initialize(self):
         """Initialize system"""
         console.print("\n[bold]Initializing multimodal system...[/bold]")
