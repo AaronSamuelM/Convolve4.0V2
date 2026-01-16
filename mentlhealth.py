@@ -86,16 +86,10 @@ MULTIMODAL_COLLECTION = "multimodal_data"
 
 console = Console()
 
-# Thread pool for async operations
 executor = concurrent.futures.ThreadPoolExecutor(max_workers=4)
-
-# ============================================================================
-# MULTIMODAL DATA MODELS
-# ============================================================================
 
 @dataclass
 class MultimodalData:
-    """Multimodal data container"""
     id: str
     user_id: str
     data_type: str
@@ -111,7 +105,6 @@ class MultimodalData:
 
 @dataclass
 class MentalHealthResource:
-    """Mental health resource"""
     id: str
     title: str
     content: str
@@ -124,7 +117,6 @@ class MentalHealthResource:
 
 @dataclass
 class UserMemory:
-    """User interaction memory with multimodal support"""
     id: str
     user_id: str
     session_id: str
@@ -139,13 +131,14 @@ class UserMemory:
 
 @dataclass
 class UserProfile:
-    """User profile data"""
     user_id: str
+    email: Optional[str] = None
+    password_hash: Optional[str] = None
     name: Optional[str] = None
     created_at: str = None
     last_active: str = None
     total_interactions: int = 0
-    preferences: Dict = None
+    preferences: Dict = field(default_factory=dict)
 
     def __post_init__(self):
         if self.created_at is None:
@@ -153,19 +146,13 @@ class UserProfile:
         if self.preferences is None:
             self.preferences = {}
 
-# ============================================================================
-# ENHANCED MULTIMODAL PROCESSORS WITH CONTENT ANALYSIS
-# ============================================================================
-
 class ImageProcessor:
-    """Process and extract features from images with AI vision"""
     
     _model = None
     _processor = None
     
     @classmethod
     def _load_model(cls):
-        """Lazy load image captioning model"""
         if cls._model is None and TRANSFORMERS_AVAILABLE:
             try:
                 console.print("[cyan]Loading image analysis model...[/cyan]")
@@ -190,7 +177,6 @@ class ImageProcessor:
         try:
             img = Image.open(image_path)
             
-            # Basic analysis
             width, height = img.size
             mode = img.mode
             
@@ -204,7 +190,6 @@ class ImageProcessor:
             
             mood_from_image = cls._infer_mood_from_colors(brightness, red_blue_ratio, avg_color)
             
-            # AI-based image captioning
             caption = "No caption available"
             objects_detected = []
             
@@ -216,12 +201,10 @@ class ImageProcessor:
                         out = cls._model.generate(**inputs, max_length=50)
                         caption = cls._processor.decode(out[0], skip_special_tokens=True)
                         
-                        # Extract key objects/concepts
                         objects_detected = cls._extract_objects_from_caption(caption)
                     except Exception as e:
                         console.print(f"[yellow]Caption generation failed: {e}[/yellow]")
             
-            # Emotional context from image
             emotional_tone = cls._analyze_emotional_context(brightness, red_blue_ratio, caption)
             
             return {
@@ -242,17 +225,13 @@ class ImageProcessor:
     
     @staticmethod
     def _extract_objects_from_caption(caption: str) -> List[str]:
-        """Extract key objects from caption"""
-        # Simple extraction - could be enhanced with NLP
         words = caption.lower().split()
-        # Filter out common words
         stop_words = {'a', 'an', 'the', 'is', 'are', 'with', 'in', 'on', 'at', 'of'}
         objects = [w for w in words if w not in stop_words and len(w) > 3]
         return objects[:5]
     
     @staticmethod
     def _analyze_emotional_context(brightness: float, ratio: float, caption: str) -> str:
-        """Analyze emotional context combining visual and semantic info"""
         caption_lower = caption.lower()
         
         positive_words = ['happy', 'smile', 'joy', 'bright', 'colorful', 'nature', 'peaceful']
@@ -270,7 +249,6 @@ class ImageProcessor:
     
     @staticmethod
     def _infer_mood_from_colors(brightness: float, rg_ratio: float, avg_color) -> str:
-        """Infer mood from image colors"""
         if brightness < 80:
             return "dark/melancholic"
         elif brightness > 180:
@@ -284,7 +262,6 @@ class ImageProcessor:
     
     @classmethod
     def generate_description(cls, image_path: str, metadata: Dict = None) -> str:
-        """Generate comprehensive text description for embedding"""
         if metadata is None:
             metadata = cls.process_image(image_path)
         
@@ -305,14 +282,12 @@ class ImageProcessor:
 
 
 class AudioProcessor:
-    """Process and extract features from audio with speech recognition"""
     
     _whisper_model = None
     _whisper_processor = None
     
     @classmethod
     def _load_whisper(cls):
-        """Lazy load Whisper model for transcription"""
         if cls._whisper_model is None and TRANSFORMERS_AVAILABLE:
             try:
                 console.print("[cyan]Loading audio transcription model...[/cyan]")
@@ -335,11 +310,9 @@ class AudioProcessor:
             return {"error": "librosa not available"}
         
         try:
-            # Load audio
-            y, sr = librosa.load(audio_path, sr=16000)  # 16kHz for Whisper
+            y, sr = librosa.load(audio_path, sr=16000) 
             duration = librosa.get_duration(y=y, sr=sr)
             
-            # Extract acoustic features
             tempo, _ = librosa.beat.beat_track(y=y, sr=sr)
             spectral_centroids = librosa.feature.spectral_centroid(y=y, sr=sr)[0]
             avg_spectral_centroid = np.mean(spectral_centroids)
@@ -349,17 +322,13 @@ class AudioProcessor:
             avg_rms = np.mean(rms)
             
             mood_from_audio = cls._infer_mood_from_audio(tempo, avg_spectral_centroid, avg_rms)
-            
-            # Extract metadata (title, artist from MP3 tags)
             metadata_info = cls._extract_audio_metadata(audio_path)
             
-            # Transcribe speech if available
             transcription = "No transcription available"
-            if TRANSFORMERS_AVAILABLE and duration < 60:  # Only transcribe short clips
+            if TRANSFORMERS_AVAILABLE and duration < 60:  
                 cls._load_whisper()
                 if cls._whisper_model is not None:
                     try:
-                        # Resample if needed
                         if sr != 16000:
                             y = librosa.resample(y, orig_sr=sr, target_sr=16000)
                         
@@ -374,7 +343,6 @@ class AudioProcessor:
                     except Exception as e:
                         console.print(f"[yellow]Transcription failed: {e}[/yellow]")
             
-            # Analyze emotional content from transcription
             emotional_content = cls._analyze_emotional_content(transcription)
             
             return {
@@ -396,7 +364,6 @@ class AudioProcessor:
     
     @staticmethod
     def _extract_audio_metadata(audio_path: str) -> Dict:
-        """Extract metadata from audio file"""
         metadata = {}
         
         if EYED3_AVAILABLE and audio_path.lower().endswith('.mp3'):
@@ -452,7 +419,6 @@ class AudioProcessor:
     
     @classmethod
     def generate_description(cls, audio_path: str, metadata: Dict = None) -> str:
-        """Generate comprehensive text description for embedding"""
         if metadata is None:
             metadata = cls.process_audio(audio_path)
         
@@ -460,15 +426,11 @@ class AudioProcessor:
             return f"Audio file: {os.path.basename(audio_path)}"
         
         desc = ""
-        
-        # Add title/artist if available
         if metadata.get('title') and metadata['title'] != "Unknown":
             desc += f"Song: '{metadata['title']}'"
             if metadata.get('artist'):
                 desc += f" by {metadata['artist']}"
             desc += ". "
-        
-        # Add transcription
         if metadata.get('transcription') and metadata['transcription'] != "No transcription available":
             desc += f"Content: {metadata['transcription'][:200]}. "
         
@@ -481,11 +443,8 @@ class AudioProcessor:
 
 
 class VideoProcessor:
-    """Process and extract features from video"""
-    
     @staticmethod
     async def process_video_async(video_path: str, sample_frames: int = 5) -> Dict:
-        """Async wrapper for video processing"""
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(
             executor, 
@@ -495,7 +454,6 @@ class VideoProcessor:
     
     @staticmethod
     def process_video(video_path: str, sample_frames: int = 5) -> Dict:
-        """Extract features from video"""
         if not CV2_AVAILABLE:
             return {"error": "opencv not available"}
         
@@ -512,7 +470,6 @@ class VideoProcessor:
             brightness_values = []
             frame_descriptions = []
             
-            # Process sample frames with image processor
             for i in range(0, min(frame_count, sample_frames * frame_interval), frame_interval):
                 cap.set(cv2.CAP_PROP_POS_FRAMES, i)
                 ret, frame = cap.read()
@@ -520,7 +477,6 @@ class VideoProcessor:
                     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
                     brightness_values.append(np.mean(gray))
                     
-                    # Save frame temporarily for analysis
                     if PILLOW_AVAILABLE and TRANSFORMERS_AVAILABLE and len(frame_descriptions) < 3:
                         temp_frame_path = f"/tmp/frame_{i}.jpg"
                         cv2.imwrite(temp_frame_path, frame)
@@ -534,7 +490,6 @@ class VideoProcessor:
             avg_brightness = np.mean(brightness_values) if brightness_values else 0
             mood_from_video = VideoProcessor._infer_mood_from_video(duration, avg_brightness, fps)
             
-            # Combine frame descriptions
             video_summary = ". ".join(frame_descriptions) if frame_descriptions else "Video content"
             
             return {
@@ -553,7 +508,6 @@ class VideoProcessor:
     
     @staticmethod
     def _infer_mood_from_video(duration: float, brightness: float, fps: float) -> str:
-        """Infer mood from video characteristics"""
         if brightness < 80:
             return "dark/serious"
         elif brightness > 180:
@@ -565,7 +519,6 @@ class VideoProcessor:
     
     @staticmethod
     def generate_description(video_path: str, metadata: Dict = None) -> str:
-        """Generate text description for embedding"""
         if metadata is None:
             metadata = VideoProcessor.process_video(video_path)
         
@@ -581,11 +534,9 @@ class VideoProcessor:
 
 
 class CodeProcessor:
-    """Process and analyze code snippets"""
     
     @staticmethod
     def process_code(code: str, language: str = "python") -> Dict:
-        """Analyze code for mental health context"""
         lines = code.split('\n')
         non_empty_lines = [l for l in lines if l.strip()]
         
@@ -593,13 +544,11 @@ class CodeProcessor:
         comment_char = comment_chars.get(language, '#')
         comments = [l for l in non_empty_lines if l.strip().startswith(comment_char)]
         
-        # Extract actual content from comments
         comment_text = " ".join([
             l.strip().lstrip(comment_char).strip() 
             for l in comments
         ])
         
-        # Analyze function/class definitions
         functions = len([l for l in non_empty_lines if 'def ' in l or 'function ' in l])
         classes = len([l for l in non_empty_lines if 'class ' in l])
         
@@ -616,7 +565,6 @@ class CodeProcessor:
     
     @staticmethod
     def generate_description(code: str, language: str = "python", metadata: Dict = None) -> str:
-        """Generate text description for embedding"""
         if metadata is None:
             metadata = CodeProcessor.process_code(code, language)
         
@@ -630,11 +578,9 @@ class CodeProcessor:
 
 
 class StructuredDataProcessor:
-    """Process structured data"""
     
     @staticmethod
     def process_structured(data: Union[Dict, str], data_format: str = "json") -> Dict:
-        """Process structured data"""
         if data_format == "json":
             if isinstance(data, str):
                 data = json.loads(data)
@@ -654,7 +600,6 @@ class StructuredDataProcessor:
     
     @staticmethod
     def _summarize_dict(d: Dict, max_items: int = 5) -> str:
-        """Create human-readable summary of dict"""
         if not isinstance(d, dict):
             return str(d)[:100]
         
@@ -669,7 +614,6 @@ class StructuredDataProcessor:
     
     @staticmethod
     def _get_depth(d: Any, level: int = 0) -> int:
-        """Get nesting depth"""
         if not isinstance(d, (dict, list)):
             return level
         if isinstance(d, dict):
@@ -678,7 +622,6 @@ class StructuredDataProcessor:
     
     @staticmethod
     def generate_description(data: Union[Dict, str], data_format: str = "json", metadata: Dict = None) -> str:
-        """Generate text description for embedding"""
         if metadata is None:
             metadata = StructuredDataProcessor.process_structured(data, data_format)
         
@@ -693,12 +636,8 @@ class StructuredDataProcessor:
         return desc
 
 
-# ============================================================================
-# MOOD DETECTION ENGINE
-# ============================================================================
 
 class MoodDetector:
-    """Fast, rule-based mood detection from text"""
     
     MOOD_PATTERNS = {
         "anxious": [
@@ -748,7 +687,6 @@ class MoodDetector:
     
     @classmethod
     def detect_mood(cls, text: str) -> Optional[str]:
-        """Fast mood detection using regex patterns"""
         if not text:
             return None
         
@@ -764,11 +702,6 @@ class MoodDetector:
             return max(mood_scores.items(), key=lambda x: x[1])[0]
         
         return None
-
-
-# ============================================================================
-# ASYNC MULTIMODAL PROCESSOR
-# ============================================================================
 
 class AsyncMultimodalProcessor:
     """Async processor for multimodal data to prevent blocking"""
@@ -803,7 +736,6 @@ class AsyncMultimodalProcessor:
                         data_type = "video"
                         processed_data = await VideoProcessor.process_video_async(file_path)
                 
-                # Check for code files
                 code_extensions = {'.py': 'python', '.js': 'javascript', '.java': 'java', '.cpp': 'c++'}
                 ext = Path(file_path).suffix
                 if ext in code_extensions:
@@ -833,12 +765,7 @@ class AsyncMultimodalProcessor:
         }
 
 
-# ============================================================================
-# ENHANCED QDRANT MANAGER WITH MULTIMODAL SUPPORT
-# ============================================================================
-
 class QdrantManager:
-    """Manages Qdrant collections with multimodal support"""
     
     def __init__(self, host: str = QDRANT_HOST, port: int = QDRANT_PORT):
         self.client = QdrantClient(host=host, port=port)
@@ -847,7 +774,6 @@ class QdrantManager:
         console.print(f"[green]✓[/green] Loaded embedding model: {EMBEDDING_MODEL}")
     
     def setup_collections(self):
-        """Create all collections"""
         collections = [
             RESOURCES_COLLECTION,
             MEMORY_COLLECTION,
@@ -866,8 +792,6 @@ class QdrantManager:
                 console.print(f"[yellow]![/yellow] Collection exists: {collection}")
     
     def add_multimodal_data(self, multimodal: MultimodalData):
-        """Add multimodal data to Qdrant"""
-        # Generate embedding based on description
         if multimodal.data_type == "text":
             text_for_embedding = multimodal.content
         elif multimodal.data_type == "image":
@@ -935,7 +859,7 @@ class QdrantManager:
             collection_name=MULTIMODAL_COLLECTION,
             query=query_vector,
             query_filter=filter_conditions,
-            limit=limit * 2  # Get more to filter by type
+            limit=limit * 2  
         )
         
         multimodal_with_scores = []
@@ -1127,12 +1051,15 @@ class QdrantManager:
                 point = results[0][0]
                 return UserProfile(
                     user_id=point.payload["user_id"],
+                    email=point.payload.get("email"),
+                    password_hash=point.payload.get("password_hash"),
                     name=point.payload.get("name"),
                     created_at=point.payload.get("created_at"),
                     last_active=point.payload.get("last_active"),
                     total_interactions=point.payload.get("total_interactions", 0),
                     preferences=point.payload.get("preferences", {})
                 )
+
         except Exception as e:
             console.print(f"[yellow]Could not load user profile: {e}[/yellow]")
         
@@ -1150,6 +1077,8 @@ class QdrantManager:
             vector=vector,
             payload={
                 "user_id": profile.user_id,
+                "email": profile.email,
+                "password_hash": profile.password_hash,
                 "name": profile.name,
                 "created_at": profile.created_at,
                 "last_active": profile.last_active,
@@ -1159,11 +1088,6 @@ class QdrantManager:
         )
         
         self.client.upsert(collection_name=USER_PROFILE_COLLECTION, points=[point])
-
-
-# ============================================================================
-# LLM RESPONDER (Enhanced for Multimodal)
-# ============================================================================
 
 class LLMResponder:
     """Generate responses with multimodal context"""
@@ -1186,12 +1110,10 @@ class LLMResponder:
         
         context_parts = []
         
-        # User context
         if user_profile and user_profile.name:
             context_parts.append(f"=== USER PROFILE ===")
             context_parts.append(f"Name: {user_profile.name}")
         
-        # Multimodal context (ENHANCED)
         if multimodal_context:
             context_parts.append("\n=== MULTIMODAL CONTEXT ===")
             for mm_data, score in multimodal_context:
@@ -1225,7 +1147,6 @@ class LLMResponder:
                         if pd.get('comment_text'):
                             context_parts.append(f"Comments: {pd['comment_text'][:200]}")
         
-        # Past memories
         if past_memories:
             context_parts.append("\n=== RELEVANT PAST CONVERSATIONS ===")
             for mem in past_memories[:3]:
@@ -1234,7 +1155,6 @@ class LLMResponder:
                 if mem.mood:
                     context_parts.append(f"Mood: {mem.mood}")
         
-        # Current resources
         context_parts.append("\n=== RELEVANT RESOURCES ===")
         for resource, score in retrieved_resources:
             context_parts.append(f"\nTitle: {resource.title}")
@@ -1306,11 +1226,6 @@ Provide a supportive response that considers only relevant to the question conte
         summary = f"Recommended {len(resources)} resources"
         return response, summary
 
-
-# ============================================================================
-# ANALYTICS
-# ============================================================================
-
 class UserAnalytics:
     """Analyze user patterns"""
     
@@ -1327,7 +1242,6 @@ class UserAnalytics:
         hours = [ts.hour for ts in timestamps]
         days = [ts.strftime('%A') for ts in timestamps]
         
-        # Count multimodal usage
         multimodal_count = sum(1 for m in memories if m.multimodal_data_ids)
         
         return {
@@ -1344,15 +1258,11 @@ class UserAnalytics:
             "multimodal_percentage": (multimodal_count / len(memories) * 100) if memories else 0
         }
 
-
-# ============================================================================
-# MAIN APPLICATION WITH ASYNC MULTIMODAL SUPPORT
-# ============================================================================
-
 class MentalHealthAssistant:
     """Main application with async multimodal capabilities"""
     
-    def __init__(self, user_id: str = "6988bc70"):
+    def __init__(self, user_id: str = "6988bc70", is_guest: bool = False):
+        self.is_guest = is_guest
         self.qdrant = QdrantManager()
         self.llm = LLMResponder()
         self.user_id = user_id
@@ -1387,29 +1297,27 @@ class MentalHealthAssistant:
         file_path: Optional[str] = None
     ) -> Dict:
         """Process user query asynchronously with optional multimodal file"""
-        
-        if not self.user_profile:
-            self.user_profile = self.qdrant.get_user_profile(self.user_id)
+        if not self.is_guest:
             if not self.user_profile:
-                self.user_profile = UserProfile(user_id=self.user_id)
-                self.qdrant.upsert_user_profile(self.user_profile)
+                self.user_profile = self.qdrant.get_user_profile(self.user_id)
+                if not self.user_profile:
+                    self.user_profile = UserProfile(user_id=self.user_id)
+                    self.qdrant.upsert_user_profile(self.user_profile)
+        if not self.is_guest:
+            multimodal_data_ids = []
+            if file_path and os.path.exists(file_path):
+                mm_id, mm_data = await AsyncMultimodalProcessor.process_file(file_path, self.user_id)
+                if mm_id and 'error' not in mm_data:
+                    multimodal = MultimodalData(**mm_data)
+                    if not self.is_guest:
+                        self.qdrant.add_multimodal_data(multimodal)
+                    multimodal_data_ids.append(mm_id)
         
-        # Process multimodal file asynchronously
-        multimodal_data_ids = []
-        if file_path and os.path.exists(file_path):
-            mm_id, mm_data = await AsyncMultimodalProcessor.process_file(file_path, self.user_id)
-            if mm_id and 'error' not in mm_data:
-                multimodal = MultimodalData(**mm_data)
-                self.qdrant.add_multimodal_data(multimodal)
-                multimodal_data_ids.append(mm_id)
-        
-        # Auto-detect mood
         if auto_detect_mood and not mood:
             mood = MoodDetector.detect_mood(query)
             if mood:
                 console.print(f"[cyan]Detected mood: {mood}[/cyan]")
         
-        # Search resources (async in thread pool)
         console.print(f"[cyan]Searching knowledge base...[/cyan]")
         loop = asyncio.get_event_loop()
         resources = await loop.run_in_executor(
@@ -1419,15 +1327,12 @@ class MentalHealthAssistant:
             self.user_id
         )
         
-        # Search past memories
         past_memories = await loop.run_in_executor(
             executor,
             partial(self.qdrant.search_user_memories, limit=3),
             self.user_id,
             query
         )
-        
-        # Search multimodal context
         multimodal_context = await loop.run_in_executor(
             executor,
             partial(self.qdrant.search_multimodal, limit=3),
@@ -1435,15 +1340,12 @@ class MentalHealthAssistant:
             self.user_id
         )
         
-        # Get analytics
         user_history = await loop.run_in_executor(
             executor,
             partial(self.qdrant.get_user_history, limit=100),
             self.user_id
         )
         analytics = UserAnalytics.analyze_patterns(user_history)
-        
-        # Generate response
         console.print(f"[cyan]Generating personalized response...[/cyan]")
         full_response, summary = await loop.run_in_executor(
             executor,
@@ -1455,17 +1357,11 @@ class MentalHealthAssistant:
             multimodal_context,
             analytics
         )
-        
-        # Display response
         console.print("\n" + "="*70)
         console.print(Markdown(full_response))
         console.print("="*70)
-        
-        # Display multimodal context if any
         if multimodal_context:
             self._display_multimodal_context(multimodal_context)
-        
-        # Save memory
         memory = UserMemory(
             id=str(uuid.uuid4()),
             user_id=self.user_id,
@@ -1477,24 +1373,23 @@ class MentalHealthAssistant:
             resources_used=[r[0].id for r in resources],
             multimodal_data_ids=multimodal_data_ids
         )
-        self.qdrant.add_memory(memory)
-        
-        # Update profile
-        self.user_profile.last_active = datetime.now().isoformat()
-        self.user_profile.total_interactions += 1
-        self.qdrant.upsert_user_profile(self.user_profile)
+        if not self.is_guest:
+            self.qdrant.add_memory(memory)
+            self.user_profile.last_active = datetime.now().isoformat()
+            self.user_profile.total_interactions += 1
+            self.qdrant.upsert_user_profile(self.user_profile)
         
         return {
             "success": True,
             "user_id": self.user_id,
-            "session_id": self.session_id,
+            "is_guest": self.is_guest,
             "query": query,
             "detected_mood": mood,
             "response": full_response,
-            "response_summary": summary,
-            "multimodal_data_ids": multimodal_data_ids,
+            "summary": summary,
             "timestamp": datetime.now().isoformat()
         }
+
     
     def process_query(self, query: str, mood: Optional[str] = None, 
                      auto_detect_mood: bool = True, file_path: Optional[str] = None) -> Dict:
@@ -1508,8 +1403,6 @@ class MentalHealthAssistant:
         for mm_data, score in context:
             if mm_data.processed_data:
                 pd = mm_data.processed_data
-                
-                # Create table for this multimodal item
                 table = Table(
                     title=f"{mm_data.data_type.upper()} - Relevance: {score:.3f}", 
                     show_header=False, 
@@ -1517,8 +1410,6 @@ class MentalHealthAssistant:
                 )
                 table.add_column("Property", style="yellow")
                 table.add_column("Value", style="white")
-                
-                # Add rows based on data type
                 if mm_data.data_type == "image":
                     table.add_row("Caption", pd.get('caption', 'N/A'))
                     table.add_row("Emotional Tone", pd.get('emotional_tone', 'N/A'))
@@ -1552,8 +1443,6 @@ class MentalHealthAssistant:
                     table.add_row("Functions", str(pd.get('functions', 0)))
                     if pd.get('comment_text'):
                         table.add_row("Comments", pd['comment_text'][:100])
-                
-                # Print the table
                 console.print(table)
                 console.print()
     
