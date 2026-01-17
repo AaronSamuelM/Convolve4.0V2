@@ -9,11 +9,6 @@ USERS_FILE = "users.json"
 UPLOAD_DIR = "uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
-if not os.path.exists(USERS_FILE):
-    with open(USERS_FILE, "w") as f:
-        json.dump({}, f)
-
-
 def hash_password(p):
     return hashlib.sha256(p.encode()).hexdigest()
 
@@ -31,11 +26,12 @@ def save_users(data):
 @app.post("/auth/register")
 def register():
     data = request.json
+    name=data.get("name")
     email = data.get("email")
     password = data.get("password")
 
-    if not email or not password:
-        return jsonify({"error": "email and password required"}), 400
+    if not name or not email or not password:
+        return jsonify({"error": "Name, email and password required"}), 400
 
     password_hash = hash_password(password)
 
@@ -49,6 +45,7 @@ def register():
 
     users = load_users()
     users[email] = {
+        "name": name,
         "user_id": user_id,
         "password": password_hash,
         "created": datetime.now().isoformat()
@@ -56,9 +53,7 @@ def register():
     save_users(users)
 
     assistant = MentalHealthAssistant(user_id)
-    assistant.user_profile.email = email
-    assistant.user_profile.password_hash = password_hash
-    assistant.qdrant.upsert_user_profile(assistant.user_profile)
+    assistant.create_user_profile(name=name,email=email,password_hash=password_hash)
 
     return jsonify({
         "user_id": user_id,
@@ -107,7 +102,7 @@ def chat():
 
     assistant = MentalHealthAssistant(user_id)
     assistant.initialize()
-    result = assistant.process_query_async(query)
+    result =asyncio.run( assistant.process_query_async(query))
     return jsonify(result)
 
 
@@ -137,6 +132,12 @@ def upload():
     )
     return jsonify(result)
 
+@app.after_request
+def after_request(response):
+    response.headers.add('Access-Control-Allow-Origin', '*')
+    response.headers.add('Access-Control-Allow-Headers', 'Content-Type')
+    response.headers.add('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+    return response
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8000, debug=False)

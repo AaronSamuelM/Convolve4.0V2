@@ -1,4 +1,5 @@
 import os
+from dotenv import load_dotenv
 import json
 import requests
 import uuid
@@ -73,7 +74,7 @@ except ImportError:
 # ============================================================================
 # CONFIGURATION
 # ============================================================================
-
+load_dotenv()
 QDRANT_HOST = "localhost"
 QDRANT_PORT = 6333
 EMBEDDING_MODEL = "all-MiniLM-L6-v2" 
@@ -85,9 +86,7 @@ USER_PROFILE_COLLECTION = "user_profiles"
 MULTIMODAL_COLLECTION = "multimodal_data"
 
 console = Console()
-
 executor = concurrent.futures.ThreadPoolExecutor(max_workers=4)
-
 @dataclass
 class MultimodalData:
     id: str
@@ -640,6 +639,8 @@ class StructuredDataProcessor:
 class MoodDetector:
     
     MOOD_PATTERNS = {
+        "neutral":[
+        ],
         "anxious": [
             r'\b(anxious|anxiety|worried|worry|nervous|panic|fear|scared|afraid|uneasy|restless|tense)\b',
             r'\b(can\'t (stop|calm)|racing thoughts|heart racing|on edge)\b',
@@ -768,7 +769,7 @@ class AsyncMultimodalProcessor:
 class QdrantManager:
     
     def __init__(self, host: str = QDRANT_HOST, port: int = QDRANT_PORT):
-        self.client = QdrantClient(host=host, port=port)
+        self.client = QdrantClient(url=os.getenv("QDRANT_URL"), api_key=os.getenv("QDRANT_API_KEY"))
         self.encoder = SentenceTransformer(EMBEDDING_MODEL)
         console.print(f"[green]✓[/green] Connected to Qdrant at {host}:{port}")
         console.print(f"[green]✓[/green] Loaded embedding model: {EMBEDDING_MODEL}")
@@ -857,11 +858,10 @@ class QdrantManager:
         query: str,
         user_id: str,
         data_types: Optional[List[str]] = None,
-        limit: int = 5
+        limit: int = 2
     ) -> List[Tuple[MultimodalData, float]]:
         """Search multimodal data"""
         query_vector = self.encoder.encode(query).tolist()
-        
         must_conditions = [FieldCondition(key="user_id", match=MatchValue(value=user_id))]
         filter_conditions = Filter(must=must_conditions)
         
@@ -959,7 +959,7 @@ class QdrantManager:
                 duration_minutes=hit.payload.get("duration_minutes")
             )
             resources_with_scores.append((resource, hit.score))
-        
+        console.log(resources_with_scores)
         return resources_with_scores
     
     def add_memory(self, memory: UserMemory):
@@ -1042,6 +1042,7 @@ class QdrantManager:
                 notes=hit.payload.get("notes")
             )
             memories.append(memory)
+        console.log(memories)
         
         return memories
     
@@ -1101,9 +1102,14 @@ class QdrantManager:
 class LLMResponder:
     """Generate responses with multimodal context"""
 
-    def __init__(self, model="llama3"):
+    def __init__(self, model="llama-3.3-70b-versatile"):
+        self.api_key = os.getenv("GROQ_API_KEY")
         self.model = model
-        self.ollama_url = "http://localhost:11434/api/generate"
+        self.url = f"https://api.groq.com/openai/v1/chat/completions"
+        self.headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json"
+        }
         console.print(f"[green]✓[/green] LLM initialized: {model}")
 
     def generate_response(
@@ -1171,41 +1177,45 @@ class LLMResponder:
             context_parts.append(f"Source: {resource.source}")
         
         context = "\n".join(context_parts)
-        
-        system_prompt = f"""You are a assistant.
+        system_prompt = f"""You are a mental health assistant.
 
-CRITICAL INSTRUCTIONS:
-1. Provide evidence-based, supportive responses
-2. ALWAYS cite specific resources by title
-3. Consider only most relevant multimodal context (images, audio, video, code) and dont mention word like "from the audio clip" or the media name 
-4. When images/audio/video are provided, reference their content in a human readable way
-5. Be warm and personalized only whe required
-6. Reference past conversations when relevant
-7. Keep responses actionable and concise (minimum 20 words and maximum 200 words)
-
+        CRITICAL INSTRUCTIONS: 1. Provide evidence-based, supportive responses 
+        2. ALWAYS cite specific resources by title 
+        3. Consider only most relevant multimodal context (images, audio, video, code) and dont mention word like "from the audio clip" or the media name 
+        4. When images/audio/video are provided, reference their content in a human readable way 
+        5. Be warm and personalized only whe required 
+        6. Reference past conversations when relevant 
+        7. Keep responses actionable and concise (minimum 20 words and maximum 200 words)
 """
 
         user_prompt = f"""User query: {query}
 
 {context}
 
-Provide a supportive response that considers only relevant to the question context and multimodal data. name:{user_profile.name}"""
+Provide a supportive response that considers only relevant to the question context and multimodal data."""
 
         try:
-            response = requests.post(
-                self.ollama_url,
+            r = requests.post(
+                self.url,
+                headers=self.headers,
                 json={
-                    "model": self.model,
-                    "prompt": system_prompt + "\n\n" + user_prompt,
-                    "stream": False
-                },
-                timeout=90
+                    "model":self.model,
+                    "messages":[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt}
+                    ],
+                    "temperature":0.6,
+                    "max_completion_tokens": 300
+                }
             )
             
-            full_response = response.json().get("response", "").strip()
-            summary = full_response[:200] + "..." if len(full_response) > 200 else full_response
-            
-            return full_response, summary
+            r.raise_for_status()
+            data = r.json()
+
+            text = data["choices"][0]["message"]["content"].strip()
+            summary = text[:200]
+            return text, summary
+
             
         except Exception as e:
             console.print(f"[yellow]LLM error: {e}[/yellow]")
@@ -1300,8 +1310,6 @@ class MentalHealthAssistant:
     def initialize(self):
         """Initialize system"""
         console.print("\n[bold]Initializing multimodal system...[/bold]")
-        
-        self.qdrant.setup_collections()
         
         self.user_profile = self.qdrant.get_user_profile(self.user_id)
         if not self.user_profile:
