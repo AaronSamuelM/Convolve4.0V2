@@ -37,7 +37,7 @@ def health():
     return jsonify({"status": "healthy"}), 200
 
 
-@app.post("/auth/register")
+@app.route("/auth/register", methods=["POST"])
 def register():
     try:
         data = request.json
@@ -61,6 +61,7 @@ def register():
 
         user_id = str(uuid.uuid4())
 
+        # Create user profile in Qdrant (no local file storage)
         assistant = MentalHealthAssistant(user_id)
         assistant.create_user_profile(name=name, email=email, password_hash=password_hash)
 
@@ -76,7 +77,7 @@ def register():
         return jsonify({"error": f"Registration failed: {str(e)}"}), 500
 
 
-@app.post("/auth/login")
+@app.route("/auth/login", methods=["POST"])
 def login():
     try:
         data = request.json
@@ -89,6 +90,7 @@ def login():
         modules = get_assistant_module()
         MentalHealthAssistant = modules['MentalHealthAssistant']
 
+        # Get user from Qdrant
         temp_assistant = MentalHealthAssistant(user_id="temp_check")
         user_profile = temp_assistant.qdrant.get_user_by_email(email)
 
@@ -107,7 +109,7 @@ def login():
         return jsonify({"error": "Login failed"}), 500
 
 
-@app.post("/auth/guest")
+@app.route("/auth/guest", methods=["POST"])
 def guest():
     try:
         return jsonify({"user_id": f"guest_{uuid.uuid4()}"})
@@ -116,7 +118,7 @@ def guest():
         return jsonify({"error": "Guest creation failed"}), 500
 
 
-@app.post("/api/chat")
+@app.route("/api/chat", methods=["POST"])
 def chat():
     try:
         data = request.json
@@ -154,7 +156,7 @@ def chat():
         return jsonify({"error": f"Chat failed: {str(e)}"}), 500
 
 
-@app.post("/api/upload")
+@app.route("/api/upload", methods=["POST"])
 def upload():
     try:
         user_id = request.form.get("user_id")
@@ -200,11 +202,6 @@ def after_request(response):
     response.headers.add('Access-Control-Allow-Headers', 'Content-Type')
     response.headers.add('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
     return response
-
-@app.get("/health")
-def health():
-    return jsonify({"status": "healthy"}), 200
-
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
