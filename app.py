@@ -1,15 +1,40 @@
 from flask import Flask, request, jsonify
 import os, json, uuid, hashlib, asyncio
 from datetime import datetime
-from mentlhealth import MentalHealthAssistant, AsyncMultimodalProcessor
 
 app = Flask(__name__)
+
+_assistant_module = None
+
+def get_assistant_module():
+    global _assistant_module
+    if _assistant_module is None:
+        from mentlhealth import MentalHealthAssistant, AsyncMultimodalProcessor
+        _assistant_module = {
+            'MentalHealthAssistant': MentalHealthAssistant,
+            'AsyncMultimodalProcessor': AsyncMultimodalProcessor
+        }
+    return _assistant_module
 
 UPLOAD_DIR = "uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 def hash_password(p):
     return hashlib.sha256(p.encode()).hexdigest()
+
+
+@app.route("/", methods=["GET"])
+def home():
+    return jsonify({
+        "status": "ok",
+        "message": "Mental Health API is running",
+        "version": "1.0.0"
+    }), 200
+
+
+@app.route("/health", methods=["GET"])
+def health():
+    return jsonify({"status": "healthy"}), 200
 
 
 @app.post("/auth/register")
@@ -24,6 +49,9 @@ def register():
             return jsonify({"error": "Name, email and password required"}), 400
 
         password_hash = hash_password(password)
+
+        modules = get_assistant_module()
+        MentalHealthAssistant = modules['MentalHealthAssistant']
 
         temp_assistant = MentalHealthAssistant(user_id="temp_check")
         existing = temp_assistant.qdrant.get_user_by_email(email)
@@ -43,6 +71,8 @@ def register():
 
     except Exception as e:
         app.logger.error(f"Registration error: {str(e)}")
+        import traceback
+        app.logger.error(traceback.format_exc())
         return jsonify({"error": f"Registration failed: {str(e)}"}), 500
 
 
@@ -55,6 +85,9 @@ def login():
 
         if not email or not password:
             return jsonify({"error": "Email and password required"}), 400
+
+        modules = get_assistant_module()
+        MentalHealthAssistant = modules['MentalHealthAssistant']
 
         temp_assistant = MentalHealthAssistant(user_id="temp_check")
         user_profile = temp_assistant.qdrant.get_user_by_email(email)
@@ -69,6 +102,8 @@ def login():
 
     except Exception as e:
         app.logger.error(f"Login error: {str(e)}")
+        import traceback
+        app.logger.error(traceback.format_exc())
         return jsonify({"error": "Login failed"}), 500
 
 
@@ -92,6 +127,9 @@ def chat():
         if not user_id or not query:
             return jsonify({"error": "user_id and query required"}), 400
 
+        modules = get_assistant_module()
+        MentalHealthAssistant = modules['MentalHealthAssistant']
+
         if is_guest:
             assistant = MentalHealthAssistant(user_id, is_guest=True)
             assistant.initialize()
@@ -111,6 +149,8 @@ def chat():
 
     except Exception as e:
         app.logger.error(f"Chat error: {str(e)}")
+        import traceback
+        app.logger.error(traceback.format_exc())
         return jsonify({"error": f"Chat failed: {str(e)}"}), 500
 
 
@@ -127,6 +167,10 @@ def upload():
         filename = f"{uuid.uuid4()}_{file.filename}"
         path = os.path.join(UPLOAD_DIR, filename)
         file.save(path)
+
+        modules = get_assistant_module()
+        MentalHealthAssistant = modules['MentalHealthAssistant']
+        AsyncMultimodalProcessor = modules['AsyncMultimodalProcessor']
 
         if is_guest:
             loop = asyncio.new_event_loop()
@@ -145,6 +189,8 @@ def upload():
 
     except Exception as e:
         app.logger.error(f"Upload error: {str(e)}")
+        import traceback
+        app.logger.error(traceback.format_exc())
         return jsonify({"error": f"Upload failed: {str(e)}"}), 500
 
 
@@ -161,4 +207,5 @@ def health():
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port, debug=False)
