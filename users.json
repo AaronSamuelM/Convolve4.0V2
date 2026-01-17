@@ -1,1 +1,14 @@
-{}
+{
+  "aaronsamuel0605@gmail.com": {
+    "name": "Aaron Samuel",
+    "user_id": "38c1902c-2386-4741-ae32-1787e1340e65",
+    "password": "ef797c8118f02dfb649607dd5d3f8c7623048c9c063d532cc95c5ed7a898a64f",
+    "created": "2026-01-16T19:32:52.260746"
+  },
+  "hello@gmail.com": {
+    "name": "Andrew",
+    "user_id": "dfba2483-2dea-4304-b708-b5b6cb85ffdd",
+    "password": "03ac674216f3e15c761ee1a5e255f067953623c8b388b4459e13f978d7c846f4",
+    "created": "2026-01-16T23:02:15.805109"
+  }
+}
