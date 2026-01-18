@@ -1,9 +1,6 @@
 services:
   - type: web
-    name: flask-app
-    env: python
-    buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn app:app
-    envVars:
-      - key: FLASK_ENV
-        value: production
+    name: mentalhealth-api
+    env: docker
+    plan: free
+    healthCheckPath: /health

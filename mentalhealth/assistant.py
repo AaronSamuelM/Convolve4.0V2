@@ -10,7 +10,6 @@ import concurrent.futures
 from .config import MAX_WORKERS
 from .models import UserMemory, UserProfile, MultimodalData
 from .core.qdrant_manager import QdrantManager
-from .core.llm import LLMResponder
 from .core.mood import MoodDetector
 from .core.analytics import UserAnalytics
 from .multimodal import AsyncMultimodalProcessor
@@ -22,12 +21,20 @@ class MentalHealthAssistant:
     def __init__(self, user_id: str, is_guest: bool = False):
         self.is_guest = is_guest
         self.qdrant = QdrantManager()
-        self.llm = LLMResponder()
+        self.llm = None 
         self.user_id = user_id
         self.session_id = str(uuid.uuid4())[:8]
         self.user_profile = None
         
         print(f"[Assistant] Initialized for user: {user_id}, Session: {self.session_id}")
+    
+    def get_llm(self):
+        """Lazy load LLM only when needed"""
+        if self.llm is None:
+            from .core.llm import LLMResponder
+            self.llm = LLMResponder()
+            print("[Assistant] LLM loaded on-demand")
+        return self.llm
     
     def create_user_profile(self, name: str, email: str, password_hash: str):
         if self.is_guest:
@@ -115,9 +122,11 @@ class MentalHealthAssistant:
         analytics = UserAnalytics.analyze_patterns(user_history)
         
         print("[Assistant] Generating response...")
+        # Use lazy-loaded LLM
+        llm = self.get_llm()
         full_response, summary = await loop.run_in_executor(
             executor,
-            self.llm.generate_response,
+            llm.generate_response,
             query,
             resources,
             self.user_profile,
