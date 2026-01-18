@@ -248,7 +248,7 @@ async def shutdown_event():
 if __name__ == "__main__":
     import uvicorn
     
-    port = int(os.environ.get("PORT", 8000))
+    port = int(os.environ.get("PORT", 5000))
     
     if sys.platform == 'win32':
         print("⚠️  Running on Windows - using uvicorn (single process)")
