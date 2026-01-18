@@ -1,17 +1,21 @@
-﻿# Core Framework
+# Core Framework
 fastapi==0.128.0
 uvicorn==0.40.0
 gunicorn==23.0.0
+python-multipart==0.0.9
 
+# Vector / LLM
 qdrant-client==1.16.2
 transformers==4.57.5
 fastembed==0.3.6
+torch==2.2.2
+
 # Data Processing
 numpy==1.26.4
 pandas==2.3.2
 pydantic==2.12.5
 
-# Multimodal Processing
+# Multimodal
 moviepy==1.0.3
 pillow==10.4.0
 librosa==0.11.0
@@ -21,5 +25,3 @@ python-dotenv==1.2.1
 requests==2.32.5
 rich==14.2.0
 email-validator==2.3.0
-
-
