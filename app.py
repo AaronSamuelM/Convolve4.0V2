@@ -1,208 +1,274 @@
-from flask import Flask, request, jsonify
-import os, json, uuid, hashlib, asyncio
-from datetime import datetime
+"""Optimized FastAPI Mental Health API - Modular Version"""
+from fastapi import FastAPI, File, UploadFile, HTTPException, Form
+from fastapi.responses import JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel, EmailStr
+import os
+import uuid
+import asyncio
+import sys
 
-app = Flask(__name__)
+from mentalhealth import MentalHealthAssistant, AsyncMultimodalProcessor
 
-_assistant_module = None
+if sys.platform == 'win32':
+    asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
 
-def get_assistant_module():
-    global _assistant_module
-    if _assistant_module is None:
-        from mentlhealth import MentalHealthAssistant, AsyncMultimodalProcessor
-        _assistant_module = {
-            'MentalHealthAssistant': MentalHealthAssistant,
-            'AsyncMultimodalProcessor': AsyncMultimodalProcessor
-        }
-    return _assistant_module
+from hashlib import sha256 as _sha256
+
+def hash_password(p: str) -> str:
+    """Optimized password hashing - avoid dot operations"""
+    encode = str.encode
+    hexdigest = _sha256(encode(p)).hexdigest
+    return hexdigest()
+
+
+class RegisterRequest(BaseModel):
+    name: str
+    email: EmailStr
+    password: str
+
+
+class LoginRequest(BaseModel):
+    email: EmailStr
+    password: str
+
+
+class ChatRequest(BaseModel):
+    user_id: str
+    query: str
+    is_guest: bool = False
+
+
+app = FastAPI(
+    title="Mental Health API",
+    version="2.0.0",
+    docs_url="/docs",
+    redoc_url="/redoc"
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 UPLOAD_DIR = "uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
-def hash_password(p):
-    return hashlib.sha256(p.encode()).hexdigest()
+class AssistantPool:
+    """Connection pool pattern for assistant instances"""
+    def __init__(self, max_size: int = 10):
+        self._pool = []
+        self._max_size = max_size
+        self._lock = asyncio.Lock()
+    
+    async def acquire(self, user_id: str):
+        async with self._lock:
+            for assistant in self._pool:
+                if assistant.user_id == user_id:
+                    self._pool.remove(assistant)
+                    return assistant
+            
+            return MentalHealthAssistant(user_id)
+    
+    async def release(self, assistant):
+        async with self._lock:
+            if len(self._pool) < self._max_size:
+                self._pool.append(assistant)
 
 
-@app.route("/", methods=["GET"])
-def home():
-    return jsonify({
+assistant_pool = AssistantPool()
+
+
+@app.get("/")
+async def home():
+    """Home endpoint"""
+    return JSONResponse({
         "status": "ok",
         "message": "Mental Health API is running",
-        "version": "1.0.0"
-    }), 200
+        "version": "2.0.0"
+    })
 
 
-@app.route("/health", methods=["GET"])
-def health():
-    return jsonify({"status": "healthy"}), 200
+@app.get("/health")
+async def health():
+    """Health check endpoint"""
+    return JSONResponse({"status": "healthy"})
 
 
-@app.route("/auth/register", methods=["POST"])
-def register():
+@app.post("/auth/register")
+async def register(request: RegisterRequest):
+    """User registration endpoint"""
     try:
-        data = request.json
-        name = data.get("name")
-        email = data.get("email")
-        password = data.get("password")
-
-        if not name or not email or not password:
-            return jsonify({"error": "Name, email and password required"}), 400
-
+        name = request.name
+        email = request.email
+        password = request.password
+        
         password_hash = hash_password(password)
-
-        modules = get_assistant_module()
-        MentalHealthAssistant = modules['MentalHealthAssistant']
-
+        
         temp_assistant = MentalHealthAssistant(user_id="temp_check")
-        existing = temp_assistant.qdrant.get_user_by_email(email)
-
+        existing = await asyncio.to_thread(
+            temp_assistant.qdrant.get_user_by_email, email
+        )
+        
         if existing:
-            return jsonify({"error": "user exists"}), 409
-
+            raise HTTPException(status_code=409, detail="User exists")
+        
         user_id = str(uuid.uuid4())
-
-        # Create user profile in Qdrant (no local file storage)
+        
         assistant = MentalHealthAssistant(user_id)
-        assistant.create_user_profile(name=name, email=email, password_hash=password_hash)
-
-        return jsonify({
+        await asyncio.to_thread(
+            assistant.create_user_profile,
+            name=name,
+            email=email,
+            password_hash=password_hash
+        )
+        
+        return JSONResponse({
             "user_id": user_id,
             "email": email
         })
-
+    
+    except HTTPException:
+        raise
     except Exception as e:
-        app.logger.error(f"Registration error: {str(e)}")
-        import traceback
-        app.logger.error(traceback.format_exc())
-        return jsonify({"error": f"Registration failed: {str(e)}"}), 500
+        print(f"[API] Registration error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Registration failed: {str(e)}")
 
 
-@app.route("/auth/login", methods=["POST"])
-def login():
+@app.post("/auth/login")
+async def login(request: LoginRequest):
+    """User login endpoint"""
     try:
-        data = request.json
-        email = data.get("email")
-        password = data.get("password")
-
-        if not email or not password:
-            return jsonify({"error": "Email and password required"}), 400
-
-        modules = get_assistant_module()
-        MentalHealthAssistant = modules['MentalHealthAssistant']
-
-        # Get user from Qdrant
+        email = request.email
+        password = request.password
         temp_assistant = MentalHealthAssistant(user_id="temp_check")
-        user_profile = temp_assistant.qdrant.get_user_by_email(email)
-
+        user_profile = await asyncio.to_thread(
+            temp_assistant.qdrant.get_user_by_email, email
+        )
+        
         if not user_profile:
-            return jsonify({"error": "invalid credentials"}), 401
-
-        if user_profile.password_hash != hash_password(password):
-            return jsonify({"error": "invalid credentials"}), 401
-
-        return jsonify({"user_id": user_profile.user_id})
-
+            raise HTTPException(status_code=401, detail="Invalid credentials")
+        stored_hash = user_profile.password_hash
+        if stored_hash != hash_password(password):
+            raise HTTPException(status_code=401, detail="Invalid credentials")
+        
+        return JSONResponse({"user_id": user_profile.user_id})
+    
+    except HTTPException:
+        raise
     except Exception as e:
-        app.logger.error(f"Login error: {str(e)}")
-        import traceback
-        app.logger.error(traceback.format_exc())
-        return jsonify({"error": "Login failed"}), 500
+        print(f"[API] Login error: {str(e)}")
+        raise HTTPException(status_code=500, detail="Login failed")
 
-
-@app.route("/auth/guest", methods=["POST"])
-def guest():
+@app.post("/auth/guest")
+async def guest():
+    """Guest access endpoint"""
     try:
-        return jsonify({"user_id": f"guest_{uuid.uuid4()}"})
+        return JSONResponse({"user_id": f"guest_{uuid.uuid4()}"})
     except Exception as e:
-        app.logger.error(f"Guest error: {str(e)}")
-        return jsonify({"error": "Guest creation failed"}), 500
-
-
-@app.route("/api/chat", methods=["POST"])
-def chat():
+        print(f"[API] Guest error: {str(e)}")
+        raise HTTPException(status_code=500, detail="Guest creation failed")
+@app.post("/api/chat")
+async def chat(request: ChatRequest):
+    """Chat endpoint with async processing"""
     try:
-        data = request.json
-        user_id = data.get("user_id")
-        query = data.get("query")
-        is_guest = data.get("is_guest", False)
-
-        if not user_id or not query:
-            return jsonify({"error": "user_id and query required"}), 400
-
-        modules = get_assistant_module()
-        MentalHealthAssistant = modules['MentalHealthAssistant']
-
+        user_id = request.user_id
+        query = request.query
+        is_guest = request.is_guest
+        
         if is_guest:
             assistant = MentalHealthAssistant(user_id, is_guest=True)
-            assistant.initialize()
-            resp = assistant.llm.generate_response(
-                query, [], None, [], [], {}
-            )[0]
-            return jsonify({
-                "user_id": user_id,
-                "response": resp,
-                "timestamp": datetime.now().isoformat()
-            })
-
-        assistant = MentalHealthAssistant(user_id)
-        assistant.initialize()
-        result = asyncio.run(assistant.process_query_async(query))
-        return jsonify(result)
-
+            result = await assistant.process_query_async(query) 
+            return JSONResponse(result)
+        assistant = await assistant_pool.acquire(user_id)
+        try:
+            await asyncio.to_thread(assistant.initialize)
+            result = await assistant.process_query_async(query)
+            return JSONResponse(result)
+        finally:
+            await assistant_pool.release(assistant)
     except Exception as e:
-        app.logger.error(f"Chat error: {str(e)}")
-        import traceback
-        app.logger.error(traceback.format_exc())
-        return jsonify({"error": f"Chat failed: {str(e)}"}), 500
+        print(f"[API] Chat error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Chat failed: {str(e)}")
 
 
-@app.route("/api/upload", methods=["POST"])
-def upload():
+@app.post("/api/upload")
+async def upload(
+    file: UploadFile = File(...),
+    user_id: str = Form(...),
+    is_guest: str = Form("false")
+):
+    """File upload endpoint with multimodal processing"""
     try:
-        user_id = request.form.get("user_id")
-        is_guest = request.form.get("is_guest", "false").lower() == "true"
-
-        if "file" not in request.files:
-            return jsonify({"error": "file required"}), 400
-
-        file = request.files["file"]
+        is_guest_bool = is_guest.lower() == "true"
         filename = f"{uuid.uuid4()}_{file.filename}"
         path = os.path.join(UPLOAD_DIR, filename)
-        file.save(path)
-
-        modules = get_assistant_module()
-        MentalHealthAssistant = modules['MentalHealthAssistant']
-        AsyncMultimodalProcessor = modules['AsyncMultimodalProcessor']
-
-        if is_guest:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            _, meta = loop.run_until_complete(
-                AsyncMultimodalProcessor.process_file(path, user_id)
+        
+        contents = await file.read()
+        with open(path, 'wb') as f:
+            f.write(contents)
+        
+        if is_guest_bool:
+            _, meta = await AsyncMultimodalProcessor.process_file(path, user_id)
+            return JSONResponse({"processed": meta})
+        
+        assistant = await assistant_pool.acquire(user_id)
+        try:
+            await asyncio.to_thread(assistant.initialize)
+            result = await assistant.process_query_async(
+                f"User uploaded {file.filename}",
+                file_path=path
             )
-            return jsonify({"processed": meta})
-
-        assistant = MentalHealthAssistant(user_id)
-        assistant.initialize()
-        result = assistant.process_query(
-            f"User uploaded {file.filename}", file_path=path
-        )
-        return jsonify(result)
-
+            
+            return JSONResponse(result)
+        finally:
+            await assistant_pool.release(assistant)
+    
     except Exception as e:
-        app.logger.error(f"Upload error: {str(e)}")
-        import traceback
-        app.logger.error(traceback.format_exc())
-        return jsonify({"error": f"Upload failed: {str(e)}"}), 500
+        print(f"[API] Upload error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
 
 
-@app.after_request
-def after_request(response):
-    response.headers.add('Access-Control-Allow-Origin', '*')
-    response.headers.add('Access-Control-Allow-Headers', 'Content-Type')
-    response.headers.add('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
-    return response
+@app.on_event("startup")
+async def startup_event():
+    """Application startup"""
+    print("[API] Mental Health API starting up...")
+    print(f"[API] Upload directory: {UPLOAD_DIR}")
+
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Application shutdown"""
+    print("[API] Shutting down...")
+
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port, debug=False)
+    import uvicorn
+    
+    port = int(os.environ.get("PORT", 8000))
+    
+    if sys.platform == 'win32':
+        print("⚠️  Running on Windows - using uvicorn (single process)")
+        print("💡 For production on Windows, run multiple instances behind nginx/IIS")
+        
+        uvicorn.run(
+            app,
+            host="0.0.0.0",
+            port=port,
+            log_level="info",
+            reload=True
+        )
+    else:
+        import multiprocessing
+        workers = multiprocessing.cpu_count() * 2 + 1
+        print(f"🚀 Running with {workers} workers")
+        uvicorn.run(
+            app,
+            host="0.0.0.0",
+            port=port,
+            workers=workers,
+            log_level="info"
+        )
