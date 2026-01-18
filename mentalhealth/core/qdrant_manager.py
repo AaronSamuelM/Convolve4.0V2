@@ -1,4 +1,4 @@
-"""Qdrant database manager"""
+"""Qdrant database manager with FastEmbed"""
 import os
 import uuid
 import hashlib
@@ -9,10 +9,10 @@ from qdrant_client.models import (
     VectorParams, Distance, PointStruct,
     Filter, FieldCondition, MatchValue
 )
-from sentence_transformers import SentenceTransformer
+from fastembed import TextEmbedding
 
 from ..config import (
-    QDRANT_URL, QDRANT_API_KEY, EMBEDDING_MODEL, EMBEDDING_DIM,
+    QDRANT_URL, QDRANT_API_KEY, EMBEDDING_DIM,
     RESOURCES_COLLECTION, MEMORY_COLLECTION, USER_PROFILE_COLLECTION,
     MULTIMODAL_COLLECTION
 )
@@ -26,9 +26,25 @@ from ..processors.audio import AudioProcessor
 class QdrantManager:
     def __init__(self):
         self.client = QdrantClient(url=QDRANT_URL, api_key=QDRANT_API_KEY)
-        self.encoder = SentenceTransformer(EMBEDDING_MODEL)
+        self.encoder = None  # Lazy load
+        self.embedding_model = "BAAI/bge-small-en-v1.5"  # 384 dimensions
+        
         print(f"[QdrantManager] Connected to Qdrant")
-        print(f"[QdrantManager] Loaded embedding model: {EMBEDDING_MODEL}")
+        print(f"[QdrantManager] Using FastEmbed model: {self.embedding_model}")
+
+    def _get_encoder(self):
+        """Lazy load FastEmbed encoder"""
+        if self.encoder is None:
+            self.encoder = TextEmbedding(model_name=self.embedding_model)
+            print(f"[QdrantManager] FastEmbed model loaded")
+        return self.encoder
+    
+    def _encode_text(self, text: str) -> List[float]:
+        """Encode text using FastEmbed"""
+        encoder = self._get_encoder()
+        # FastEmbed returns generator, get first embedding and convert to list
+        embedding = list(encoder.embed([text]))[0]
+        return embedding.tolist()
 
     def setup_collections(self):
         collections = [
@@ -69,7 +85,7 @@ class QdrantManager:
         else:
             text_for_embedding = str(multimodal.content)
         
-        vector = self.encoder.encode(text_for_embedding).tolist()
+        vector = self._encode_text(text_for_embedding)
         
         point = PointStruct(
             id=multimodal.id,
@@ -94,7 +110,7 @@ class QdrantManager:
         data_types: Optional[List[str]] = None,
         limit: int = 2
     ) -> List[Tuple[MultimodalData, float]]:
-        query_vector = self.encoder.encode(query).tolist()
+        query_vector = self._encode_text(query)
         filter_conditions = Filter(
             must=[FieldCondition(key="user_id", match=MatchValue(value=user_id))]
         )
@@ -131,7 +147,7 @@ class QdrantManager:
         points = []
         for resource in resources:
             text = f"{resource.title}. {resource.content}"
-            vector = self.encoder.encode(text).tolist()
+            vector = self._encode_text(text)
             
             point = PointStruct(
                 id=resource.id,
@@ -159,7 +175,7 @@ class QdrantManager:
         category: Optional[str] = None,
         limit: int = 5
     ) -> List[Tuple[MentalHealthResource, float]]:
-        query_vector = self.encoder.encode(query).tolist()
+        query_vector = self._encode_text(query)
         
         filter_conditions = None
         if category:
@@ -192,7 +208,7 @@ class QdrantManager:
         return resources_with_scores
     
     def add_memory(self, memory: UserMemory):
-        vector = self.encoder.encode(memory.query).tolist()
+        vector = self._encode_text(memory.query)
         
         point = PointStruct(
             id=memory.id,
@@ -242,7 +258,7 @@ class QdrantManager:
         return sorted(memories, key=lambda m: m.timestamp, reverse=True)
     
     def search_user_memories(self, user_id: str, query: str, limit: int = 5) -> List[UserMemory]:
-        query_vector = self.encoder.encode(query).tolist()
+        query_vector = self._encode_text(query)
         
         results = self.client.query_points(
             collection_name=MEMORY_COLLECTION,
@@ -303,7 +319,7 @@ class QdrantManager:
         user_id_hash = hashlib.md5(profile.user_id.encode()).hexdigest()
         point_id = str(uuid.UUID(user_id_hash))
         
-        vector = self.encoder.encode(f"User {profile.user_id} {profile.name or ''}").tolist()
+        vector = self._encode_text(f"User {profile.user_id} {profile.name or ''}")
         
         point = PointStruct(
             id=point_id,
