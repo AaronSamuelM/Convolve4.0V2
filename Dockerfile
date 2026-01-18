@@ -14,4 +14,13 @@ COPY . .
 
 EXPOSE 8000
 
-CMD ["gunicorn", "-k", "uvicorn.workers.UvicornWorker", "-w", "2", "-b", "0.0.0.0:8000", "app:app"]
+CMD ["sh", "-c", "gunicorn app:app \
+  -k uvicorn.workers.UvicornWorker \
+  -w 1 \
+  --threads 1 \
+  --timeout 120 \
+  --max-requests 100 \
+  --max-requests-jitter 20 \
+  -b 0.0.0.0:8000"
+]
+
