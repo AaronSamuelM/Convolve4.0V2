@@ -2,7 +2,6 @@
 import os
 import asyncio
 from typing import Dict, List
-from functools import partial
 import concurrent.futures
 
 try:
