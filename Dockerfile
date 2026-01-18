@@ -21,6 +21,5 @@ CMD ["sh", "-c", "gunicorn app:app \
   --timeout 120 \
   --max-requests 100 \
   --max-requests-jitter 20 \
-  -b 0.0.0.0:8000"
-]
+  -b 0.0.0.0:8000"]
 
