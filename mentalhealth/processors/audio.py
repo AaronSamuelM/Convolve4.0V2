@@ -21,14 +21,11 @@ try:
 except ImportError:
     EYED3_AVAILABLE = False
 
-import torch
 
 os.environ["OMP_NUM_THREADS"] = "1"
 os.environ["MKL_NUM_THREADS"] = "1"
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
-torch.set_grad_enabled(False)
-torch.set_num_threads(1)
 
 executor = concurrent.futures.ThreadPoolExecutor(max_workers=2)
 
