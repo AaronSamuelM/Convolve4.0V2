@@ -29,7 +29,7 @@ class MentalHealthAssistant:
         print(f"[Assistant] Initialized for user: {user_id}, Session: {self.session_id}")
     
     def get_llm(self):
-        """Lazy load LLM only when needed"""
+        print("Before llm")
         if self.llm is None:
             from .core.llm import LLMResponder
             self.llm = LLMResponder()

@@ -1,18 +1,18 @@
-"""Qdrant database manager with FastEmbed"""
+"""Qdrant database manager with OpenAI embeddings (cloud-based, zero server memory)"""
 import os
 import uuid
 import hashlib
 from typing import List, Tuple, Optional
+from openai import OpenAI
 
 from qdrant_client import QdrantClient
 from qdrant_client.models import (
     VectorParams, Distance, PointStruct,
     Filter, FieldCondition, MatchValue
 )
-from fastembed import TextEmbedding
 
 from ..config import (
-    QDRANT_URL, QDRANT_API_KEY, EMBEDDING_DIM,
+    QDRANT_URL, QDRANT_API_KEY, OPENAI_API_KEY,
     RESOURCES_COLLECTION, MEMORY_COLLECTION, USER_PROFILE_COLLECTION,
     MULTIMODAL_COLLECTION
 )
@@ -24,29 +24,51 @@ from ..processors.audio import AudioProcessor
 
 
 class QdrantManager:
+    
     def __init__(self):
         self.client = QdrantClient(url=QDRANT_URL, api_key=QDRANT_API_KEY)
-        self.encoder = None  # Lazy load
-        self.embedding_model = "BAAI/bge-small-en-v1.5"  # 384 dimensions
+        
+        self._openai_client = None
+        self.embedding_model = "text-embedding-3-small" 
         
         print(f"[QdrantManager] Connected to Qdrant")
-        print(f"[QdrantManager] Using FastEmbed model: {self.embedding_model}")
+        print(f"[QdrantManager] Using OpenAI embeddings: {self.embedding_model} (cloud-based)")
 
-    def _get_encoder(self):
-        """Lazy load FastEmbed encoder"""
-        if self.encoder is None:
-            self.encoder = TextEmbedding(model_name=self.embedding_model)
-            print(f"[QdrantManager] FastEmbed model loaded")
-        return self.encoder
+    def _get_openai_client(self):
+        """Lazy load OpenAI client"""
+        if self._openai_client is None:
+            self._openai_client = OpenAI(api_key=OPENAI_API_KEY)
+            print("[QdrantManager] OpenAI client loaded")
+        return self._openai_client
     
     def _encode_text(self, text: str) -> List[float]:
-        """Encode text using FastEmbed"""
-        encoder = self._get_encoder()
-        # FastEmbed returns generator, get first embedding and convert to list
-        embedding = list(encoder.embed([text]))[0]
-        return embedding.tolist()
+        """
+        Encode text using OpenAI embeddings (cloud-based, zero memory).
+        
+        Args:
+            text: Text to embed
+            
+        Returns:
+            List of floats (embedding vector)
+        """
+        try:
+            client = self._get_openai_client()
+            response = client.embeddings.create(
+                model=self.embedding_model,
+                input=text
+            )
+            return response.data[0].embedding
+        except Exception as e:
+            print(f"[QdrantManager] Embedding error: {e}")
+            # Fallback: return zero vector (1536 dims for text-embedding-3-small)
+            return [0.0] * 1536
 
     def setup_collections(self):
+        """Create Qdrant collections with proper dimensions for OpenAI embeddings"""
+        # text-embedding-3-small = 1536 dimensions
+        # text-embedding-3-large = 3072 dimensions
+        embedding_dim = 1536  # Update if using text-embedding-3-large
+        
         collections = [
             RESOURCES_COLLECTION,
             MEMORY_COLLECTION,
@@ -58,7 +80,7 @@ class QdrantManager:
             if not self.client.collection_exists(collection):
                 self.client.create_collection(
                     collection_name=collection,
-                    vectors_config=VectorParams(size=EMBEDDING_DIM, distance=Distance.COSINE)
+                    vectors_config=VectorParams(size=embedding_dim, distance=Distance.COSINE)
                 )
                 print(f"[QdrantManager] Created collection: {collection}")
     
