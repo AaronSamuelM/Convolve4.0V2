@@ -1,12 +1,19 @@
-"""LLM response generator"""
+"""LLM Responder with OpenAI for both completions and embeddings"""
 import requests
 from typing import List, Tuple, Dict, Optional
+from openai import OpenAI
 
-from ..config import GROQ_API_KEY, DEFAULT_LLM_MODEL, GROQ_API_URL
+from ..config import GROQ_API_KEY, DEFAULT_LLM_MODEL, GROQ_API_URL, OPENAI_API_KEY
 from ..models import MentalHealthResource, UserProfile, UserMemory, MultimodalData
 
 
 class LLMResponder:
+    """
+    LLM Responder using:
+    - Groq for chat completions (fast, cheap)
+    - OpenAI for embeddings (zero server memory, $0.13/1M tokens)
+    """
+    
     def __init__(self, model: str = DEFAULT_LLM_MODEL):
         self.api_key = GROQ_API_KEY
         self.model = model
@@ -15,7 +22,42 @@ class LLMResponder:
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json"
         }
+        
+        # OpenAI client for embeddings (lazy loaded)
+        self._openai_client = None
+        self.embedding_model = "text-embedding-3-small"  # $0.02/1M tokens
+        
         print(f"[LLM] Initialized: {model}")
+        print(f"[LLM] Embeddings: OpenAI {self.embedding_model} (cloud-based, zero memory)")
+    
+    def _get_openai_client(self):
+        """Lazy load OpenAI client"""
+        if self._openai_client is None:
+            self._openai_client = OpenAI(api_key=OPENAI_API_KEY)
+            print("[LLM] OpenAI client loaded")
+        return self._openai_client
+    
+    def get_embedding(self, text: str) -> List[float]:
+        """
+        Get embedding from OpenAI (cloud-based, no local memory).
+        
+        Args:
+            text: Text to embed
+            
+        Returns:
+            List of floats (embedding vector, 1536 dimensions)
+        """
+        try:
+            client = self._get_openai_client()
+            response = client.embeddings.create(
+                model=self.embedding_model,
+                input=text
+            )
+            return response.data[0].embedding
+        except Exception as e:
+            print(f"[LLM] Embedding error: {e}")
+            # Fallback: return zero vector
+            return [0.0] * 1536
 
     def generate_response(
         self,
@@ -26,6 +68,7 @@ class LLMResponder:
         multimodal_context: List[Tuple[MultimodalData, float]],
         analytics: Dict
     ) -> Tuple[str, str]:
+        print("In generate Response")
         context_parts = []
         
         if user_profile and user_profile.name:

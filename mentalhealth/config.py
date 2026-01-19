@@ -2,8 +2,7 @@
 import os
 QDRANT_URL = os.getenv("QDRANT_URL")
 QDRANT_API_KEY = os.getenv("QDRANT_API_KEY")
-EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "all-MiniLM-L6-v2")
-EMBEDDING_DIM = int(os.getenv("EMBEDDING_DIM", 384))
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
 RESOURCES_COLLECTION = "mental_health_resources"
 MEMORY_COLLECTION = "user_memory"

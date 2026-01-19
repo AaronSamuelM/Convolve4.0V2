@@ -173,7 +173,6 @@ async def guest():
         raise HTTPException(status_code=500, detail="Guest creation failed")
 @app.post("/api/chat")
 async def chat(request: ChatRequest):
-    """Chat endpoint with async processing"""
     try:
         user_id = request.user_id
         query = request.query
