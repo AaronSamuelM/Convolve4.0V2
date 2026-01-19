@@ -10,7 +10,7 @@ import numpy as np
 import librosa
 
 try:
-    import whisper
+    from faster_whisper import WhisperModel
     WHISPER_AVAILABLE = True
 except ImportError:
     WHISPER_AVAILABLE = False

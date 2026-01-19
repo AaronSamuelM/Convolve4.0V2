@@ -14,7 +14,7 @@ eyed3>=0.9
 numpy==1.26.4
 pandas==2.3.2
 pydantic==2.12.5
-
+faster-whisper
 # Multimodal
 moviepy==1.0.3
 pillow==10.4.0
